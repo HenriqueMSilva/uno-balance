@@ -32,7 +32,7 @@ function displayResults(data) {
         return;
     }
 
-    if (data.amadeusIds.length === 0) {
+    if (data.amadeusFlights.length === 0) {
         resultsDiv.innerHTML = `
             <div class="result-header">Results:</div>
             <div class="no-results">No flights with Amadeus GDS found.</div>
@@ -45,21 +45,27 @@ function displayResults(data) {
 
     let html = `
         <div class="success">
-            Found ${data.amadeusIds.length} flight(s) with Amadeus GDS
+            Found ${data.amadeusFlights.length} flight(s) with Amadeus GDS
         </div>
-        <div class="result-header" style="margin-top: 15px;">Flight IDs:</div>
+        <div class="result-header" style="margin-top: 15px;">Flight Details:</div>
     `;
 
-    data.amadeusIds.forEach(id => {
-        html += `<div class="flight-id">${id}</div>`;
+    data.amadeusFlights.forEach(flight => {
+        html += `
+            <div class="flight-id">
+                <strong>PNR:</strong> ${flight.pnr}<br>
+                <strong>Office ID:</strong> ${flight.officeId || 'N/A'}<br>
+                <strong>Total:</strong> ${flight.totalMerchant || 'N/A'}
+            </div>
+        `;
     });
 
     html += `
         <div style="margin-top: 10px; font-size: 12px; color: #666;">
-            Total flight containers checked: ${data.totalContainers}
+            Total flight containers checked: ${data.totalContainers}<br>
+            Amadeus flights returned: ${data.amadeusFlights.length}
         </div>
     `;
 
     resultsDiv.innerHTML = html;
 }
-

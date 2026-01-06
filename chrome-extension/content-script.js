@@ -8,7 +8,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             console.error('❌ [Content Script] Error:', error);
             sendResponse({
                 error: `Script error: ${error.message}`,
-                amadeusIds: [],
+                amadeusFlights: [],
                 totalContainers: 0
             });
         }
@@ -18,14 +18,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 function checkAmadeusFlights() {
 
     try {
-        const amadeusIds = [];
+        const amadeusFlights = [];
 
         const flightsProduct = document.getElementById('flights-product');
 
         if (!flightsProduct) {
             return {
                 error: 'Could not find flights-product element on this page.',
-                amadeusIds: [],
+                amadeusFlights: [],
                 totalContainers: 0
             };
         }
@@ -50,28 +50,17 @@ function checkAmadeusFlights() {
                 return;
             }
             const childDivs = flightInfoBox.querySelectorAll(':scope > div.bold');
-            for (let i = 0; i < childDivs.length; i++) {
-                const div = childDivs[i];
-                const text = div.textContent.trim();
-                console.log(` [${i + 1}] div.bold text: "${text}"`);
-
-                if (text === '(Amadeus GDS)') {
-                    console.log(`    ✅ MATCH FOUND! Adding ${containerId} to results`);
-                    amadeusIds.push(containerId);
-                    break;
-                } else {
-                    console.log(`    ❌ No match (expected "(Amadeus GDS)")`);
-                }
+            if (childDivs.length > 0 && childDivs[0].textContent.trim() === '(Amadeus GDS)') {
+                console.log(`AMADEUS MATCH FOUND - Processing ${containerId}`);
+                const pnr = containerId;
+                const officeId = childDivs.length > 3 ? childDivs[3].textContent.trim() : null;
+                const flightData = extractFlightPaymentDetails(flightContainer, pnr, officeId);
+                amadeusFlights.push(flightData);
             }
         });
 
-        console.log('\n [Results] Scan complete!');
-        console.log(`   ✓ Total containers checked: ${containers.length}`);
-        console.log(`   ✓ Amadeus GDS flights found: ${amadeusIds.length}`);
-        console.log(`   ✓ Flight IDs:`, amadeusIds);
-
         return {
-            amadeusIds: amadeusIds,
+            amadeusFlights: amadeusFlights,
             totalContainers: containers.length,
             error: null
         };
@@ -81,8 +70,63 @@ function checkAmadeusFlights() {
         console.error('Stack trace:', error.stack);
         return {
             error: `Script error: ${error.message}`,
-            amadeusIds: [],
+            amadeusFlights: [],
             totalContainers: 0
         };
     }
+}
+
+function extractFlightPaymentDetails(flightContainer, pnr, officeId) {
+    const flightData = {
+        pnr: pnr,
+        officeId: officeId,
+        fare: null,
+        tax: null,
+        totalMerchant: null,
+        payments: []
+    };
+
+    // Find the fare table that comes after this container
+    let nextElement = flightContainer.nextElementSibling;
+    while (nextElement && !nextElement.classList.contains('od-table-fare-wrapper')) {
+        nextElement = nextElement.nextElementSibling;
+    }
+
+    if (nextElement && nextElement.classList.contains('od-table-fare-wrapper')) {
+        // Extract fare information
+        const fareTable = nextElement.querySelector('table.table-fare');
+        if (fareTable) {
+            const fareRows = fareTable.querySelectorAll('tbody tr');
+            if (fareRows.length > 0) {
+                const cells = fareRows[0].querySelectorAll('td.price-column');
+                if (cells.length >= 3) {
+                    flightData.fare = cells[0].textContent.trim();
+                    flightData.tax = cells[1].textContent.trim();
+                    flightData.totalMerchant = cells[2].textContent.trim();
+                }
+            }
+        }
+
+        // Find payment details section
+        const paymentsSection = nextElement.querySelector('#flight-provider-payments');
+        if (paymentsSection) {
+            const paymentRows = paymentsSection.querySelectorAll('table.table-fare tbody tr:not(:first-child)');
+            paymentRows.forEach(row => {
+                const cells = row.querySelectorAll('td');
+                if (cells.length >= 6) {
+                    const payment = {
+                        date: cells[0].textContent.trim(),
+                        transactionType: cells[1].textContent.trim(),
+                        merchant: cells[2].textContent.trim(),
+                        paymentMethod: cells[3].textContent.trim(),
+                        creditCard: cells[4].textContent.trim(),
+                        price: cells[5].textContent.trim()
+                    };
+                    flightData.payments.push(payment);
+                }
+            });
+        }
+    }
+
+    return flightData;
 }
