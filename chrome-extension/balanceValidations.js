@@ -1,14 +1,14 @@
 function validateBookingBalance(flightData) {
     const validationResults = [];
-    validationResults.push(validateFirstTwoPaymentsBalance(flightData));
-    validationResults.push(validatePassengerPayments(flightData));
+    validationResults.push(validateAirlineRefundPaymentsBalance(flightData));
+    validationResults.push(validatePassengerTicketsPayments(flightData));
     validationResults.push(validateTotalMerchantBalance(flightData));
     validationResults.push(validatePassengerSalesReportEntries(flightData));
     validationResults.push(validateBaggageSalesReportEntries(flightData));
     return validationResults;
 }
 
-function validateFirstTwoPaymentsBalance(flightData) {
+function validateAirlineRefundPaymentsBalance(flightData) {
     const { payments } = flightData;
 
     if (!payments || payments.length < 2) {
@@ -19,24 +19,20 @@ function validateFirstTwoPaymentsBalance(flightData) {
         };
     }
 
-    const firstAmount = Math.round(
-        parseFloat(payments[0].price.replace(/[^\d.-]/g, '')) * 100
-    );
-
-    const secondAmount = Math.round(
-        parseFloat(payments[1].price.replace(/[^\d.-]/g, '')) * 100
-    );
-
-    const equalsZero = firstAmount + secondAmount === 0;
+    const firstCents = moneyToCents(payments[0].price);
+    const secondCents = moneyToCents(payments[1].price);
+    const equalsZero = firstCents + secondCents === 0;
 
     return {
         type: 'FIRST_TWO_PAYMENTS',
         isValid: equalsZero,
-        reason: equalsZero ? null : `First two payments (${payments[0].price} + ${payments[1].price}) do not add up to 0`
+        reason: equalsZero
+            ? null
+            : `First two payments (${payments[0].price} + ${payments[1].price}) do not add up to 0`
     };
 }
 
-function validatePassengerPayments(flightData) {
+function validatePassengerTicketsPayments(flightData) {
     const { payments, fare, tax, passengerCount } = flightData;
 
     if (!payments || payments.length < 2 + passengerCount) {
@@ -47,19 +43,19 @@ function validatePassengerPayments(flightData) {
         };
     }
 
-    const fareAmount = parseFloat(fare.replace(/[^\d.-]/g, ''));
-    const taxAmount = parseFloat(tax.replace(/[^\d.-]/g, ''));
-    const expectedPerPassenger = (fareAmount + taxAmount) / passengerCount;
-
+    const fareCents = moneyToCents(fare);
+    const taxCents = moneyToCents(tax);
+    const totalCents = fareCents + taxCents;
+    const expectedPerPassengerCents = Math.floor(totalCents / passengerCount);
     const passengerPayments = payments.slice(2, 2 + passengerCount);
 
     for (let i = 0; i < passengerPayments.length; i++) {
-        const paymentAmount = parseFloat(passengerPayments[i].price.replace(/[^\d.-]/g, ''));
-        if (Math.abs(paymentAmount - expectedPerPassenger) > 0.01) {
+        const paymentCents = moneyToCents(passengerPayments[i].price);
+        if (paymentCents !== expectedPerPassengerCents) {
             return {
                 type: 'PASSENGER_PAYMENTS',
                 isValid: false,
-                reason: `Passenger payment ${i + 1} (${passengerPayments[i].price}) does not match expected amount (${expectedPerPassenger.toFixed(2)})`
+                reason: `Passenger payment ${i + 1} (${passengerPayments[i].price}) does not match expected amount (${centsToMoney(expectedPerPassengerCents)})`
             };
         }
     }
@@ -82,17 +78,20 @@ function validateTotalMerchantBalance(flightData) {
         };
     }
 
-    const expectedTotal = parseFloat(totalMerchant.replace(/[^\d.-]/g, ''));
-    const paymentsSum = payments.reduce((sum, payment) => {
-        return sum + parseFloat(payment.price.replace(/[^\d.-]/g, ''));
-    }, 0);
+    const expectedTotalCents = moneyToCents(totalMerchant);
+    const paymentsSumCents = payments.reduce(
+        (sum, payment) => sum + moneyToCents(payment.price),
+        0
+    );
 
-    const isValid = Math.abs(paymentsSum - expectedTotal) < 0.01;
+    const isValid = paymentsSumCents === expectedTotalCents;
 
     return {
         type: 'TOTAL_MERCHANT',
         isValid,
-        reason: isValid ? null : `Sum of payments (${paymentsSum.toFixed(2)}) does not match total merchant (${totalMerchant})`
+        reason: isValid
+            ? null
+            : `Sum of payments (${centsToMoney(paymentsSumCents)}) does not match total merchant (${totalMerchant})`
     };
 }
 
@@ -107,13 +106,15 @@ function validatePassengerSalesReportEntries(flightData) {
         };
     }
 
-    const fareAmount = parseFloat(fare.replace(/[^\d.-]/g, ''));
-    const taxAmount = parseFloat(tax.replace(/[^\d.-]/g, ''));
-    const expectedTotalPrice = (fareAmount + taxAmount) / passengerCount;
-    const expectedTax = taxAmount / passengerCount;
+    const fareCents = moneyToCents(fare);
+    const taxCents = moneyToCents(tax);
 
-    const passengerEntries = salesReport.filter(entry =>
-        entry.action === 'ELECTRONIC_TICKETING_SALE_AUTOMATED'
+    const totalPriceCents = fareCents + taxCents;
+    const expectedTotalPriceCents = Math.floor(totalPriceCents / passengerCount);
+    const expectedTaxCents = Math.floor(taxCents / passengerCount);
+
+    const passengerEntries = salesReport.filter(
+        entry => entry.action === 'ELECTRONIC_TICKETING_SALE_AUTOMATED'
     );
 
     if (passengerEntries.length !== passengerCount) {
@@ -126,22 +127,22 @@ function validatePassengerSalesReportEntries(flightData) {
 
     for (let i = 0; i < passengerEntries.length; i++) {
         const entry = passengerEntries[i];
-        const totalPrice = entry.monetaryInformation.totalPrice;
-        const entryTax = entry.monetaryInformation.tax;
+        const totalPriceCentsEntry = moneyToCents(entry.monetaryInformation.totalPrice);
+        const taxCentsEntry = moneyToCents(entry.monetaryInformation.tax);
 
-        if (Math.abs(totalPrice - expectedTotalPrice) > 0.01) {
+        if (totalPriceCentsEntry !== expectedTotalPriceCents) {
             return {
                 type: 'PASSENGER_SALES_REPORT',
                 isValid: false,
-                reason: `Passenger entry ${i + 1} totalPrice (${totalPrice}) does not match expected (${expectedTotalPrice.toFixed(2)})`
+                reason: `Passenger entry ${i + 1} totalPrice (${centsToMoney(totalPriceCentsEntry)}) does not match expected (${centsToMoney(expectedTotalPriceCents)})`
             };
         }
 
-        if (Math.abs(entryTax - expectedTax) > 0.01) {
+        if (taxCentsEntry !== expectedTaxCents) {
             return {
                 type: 'PASSENGER_SALES_REPORT',
                 isValid: false,
-                reason: `Passenger entry ${i + 1} tax (${entryTax}) does not match expected (${expectedTax.toFixed(2)})`
+                reason: `Passenger entry ${i + 1} tax (${centsToMoney(taxCentsEntry)}) does not match expected (${centsToMoney(expectedTaxCents)})`
             };
         }
     }
@@ -164,8 +165,8 @@ function validateBaggageSalesReportEntries(flightData) {
         };
     }
 
-    const baggageEntries = salesReport.filter(entry =>
-        entry.action === 'ELECTRONIC_MISCELLANEOUS_DOCUMENT_ASSOCIATED'
+    const baggageEntries = salesReport.filter(
+        entry => entry.action === 'ELECTRONIC_MISCELLANEOUS_DOCUMENT_ASSOCIATED'
     );
 
     const isValid = baggageEntries.length === baggageCount;
@@ -182,7 +183,6 @@ function validateCurrencyConsistency(flightData) {
 
     const currencies = new Set();
 
-    // Extract currency from fare, tax, and total merchant
     const fareCurrency = extractCurrency(fare);
     const taxCurrency = extractCurrency(tax);
     const totalMerchantCurrency = extractCurrency(totalMerchant);
@@ -191,7 +191,6 @@ function validateCurrencyConsistency(flightData) {
     if (taxCurrency) currencies.add(taxCurrency);
     if (totalMerchantCurrency) currencies.add(totalMerchantCurrency);
 
-    // Extract currency from all payments
     if (payments && Array.isArray(payments)) {
         payments.forEach(payment => {
             const paymentCurrency = extractCurrency(payment.price);
@@ -199,7 +198,6 @@ function validateCurrencyConsistency(flightData) {
         });
     }
 
-    // Check if all currencies are the same
     if (currencies.size > 1) {
         return {
             isValid: false,
@@ -222,7 +220,26 @@ function validateCurrencyConsistency(flightData) {
 
 function extractCurrency(amountString) {
     if (!amountString) return null;
-    // Match currency symbols or codes (e.g., €, $, USD, EUR, etc.)
     const match = amountString.match(/([A-Z]{3}|[$€£¥])/);
     return match ? match[1] : null;
+}
+
+function moneyToCents(amount) {
+    if (amount == null) return 0;
+
+    if (typeof amount === 'number') {
+        return Math.round(amount * 100);
+    }
+
+    if (typeof amount === 'string') {
+        const clean = amount.trim().replace(/[^\d.-]/g, '');
+        const sign = clean.startsWith('-') ? -1 : 1;
+        const [whole, decimal = ''] = clean.replace('-', '').split('.');
+        return sign * (Number(whole) * 100 + Number(decimal.padEnd(2, '0').slice(0, 2)));
+    }
+
+}
+
+function centsToMoney(cents) {
+    return (cents / 100).toFixed(2);
 }
