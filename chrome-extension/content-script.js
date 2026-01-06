@@ -152,8 +152,31 @@ async function fetchAmadeusSalesReport(officeId, reportDate) {
 }
 
 async function fetchSalesReportByPNR(officeId, reportDate, pnr) {
-    const salesReport = await fetchAmadeusSalesReport(officeId, reportDate);
-    return filterSalesReportByPNR(salesReport, pnr);
+    let salesReport = await fetchAmadeusSalesReport(officeId, reportDate);
+    let filteredReport = filterSalesReportByPNR(salesReport, pnr);
+
+    // If no entries found, try the previous day
+    if (filteredReport.length === 0) {
+        console.log(`No sales report entries found for PNR ${pnr} on ${reportDate}, trying previous day...`);
+        const previousDate = getPreviousDay(reportDate);
+        salesReport = await fetchAmadeusSalesReport(officeId, previousDate);
+        filteredReport = filterSalesReportByPNR(salesReport, pnr);
+
+    }
+
+    return filteredReport;
+}
+
+function getPreviousDay(dateString) {
+    // dateString format: "2025-12-30"
+    const date = new Date(dateString);
+    date.setDate(date.getDate() - 1);
+
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+
+    return `${year}-${month}-${day}`;
 }
 
 function filterSalesReportByPNR(salesReportData, pnr) {
