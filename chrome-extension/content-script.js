@@ -132,15 +132,19 @@ function extractBaggageCount(flightContainer) {
 
 
 async function fetchAmadeusSalesReport(officeId, reportDate) {
-    const url = `https://lb.amadeus-gateway.gke-apps.edo.qa/amadeus-gateway/api/v2/salesReport/ticket/?officeId=${officeId}&reportDate=${reportDate}`;
-
     try {
-        const response = await fetch(url);
-        if (!response.ok) {
-            console.error(`HTTP error! status: ${response.status}`);
+        const response = await chrome.runtime.sendMessage({
+            action: 'fetchAmadeusSalesReport',
+            officeId,
+            reportDate
+        });
+
+        if (response.success) {
+            return response.data;
+        } else {
+            console.error(`Error fetching sales report: ${response.error}`);
             return null;
         }
-        return await response.json();
     } catch (error) {
         console.error(`Error fetching sales report for ${officeId} on ${reportDate}:`, error);
         return null;
@@ -153,11 +157,11 @@ async function fetchSalesReportByPNR(officeId, reportDate, pnr) {
 }
 
 function filterSalesReportByPNR(salesReportData, pnr) {
-    if (!salesReportData || !Array.isArray(salesReportData)) {
+    if (!salesReportData || !salesReportData.items || !Array.isArray(salesReportData.items)) {
         return [];
     }
 
-    return salesReportData.filter(item => item.pnr === pnr);
+    return salesReportData.items.filter(item => item.pnr === pnr);
 }
 
 function extractFlightPaymentData(flightContainer, pnr, officeId) {
