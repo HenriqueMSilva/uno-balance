@@ -1,15 +1,10 @@
 function validateBookingBalance(flightData) {
     const validationResults = [];
-
-    // Validate payment details
     validationResults.push(validateFirstTwoPaymentsBalance(flightData));
     validationResults.push(validatePassengerPayments(flightData));
     validationResults.push(validateTotalMerchantBalance(flightData));
-
-    // Validate sales report
     validationResults.push(validatePassengerSalesReportEntries(flightData));
     validationResults.push(validateBaggageSalesReportEntries(flightData));
-
     return validationResults;
 }
 
@@ -24,16 +19,20 @@ function validateFirstTwoPaymentsBalance(flightData) {
         };
     }
 
-    const firstAmount = parseFloat(payments[0].price.replace(/[^\d.-]/g, ''));
-    const secondAmount = parseFloat(payments[1].price.replace(/[^\d.-]/g, ''));
-    const sum = firstAmount + secondAmount;
+    const firstAmount = Math.round(
+        parseFloat(payments[0].price.replace(/[^\d.-]/g, '')) * 100
+    );
 
-    const isValid = Math.abs(sum) < 0.01; // Allow small floating point errors
+    const secondAmount = Math.round(
+        parseFloat(payments[1].price.replace(/[^\d.-]/g, '')) * 100
+    );
+
+    const equalsZero = firstAmount + secondAmount === 0;
 
     return {
         type: 'FIRST_TWO_PAYMENTS',
-        isValid,
-        reason: isValid ? null : `First two payments (${payments[0].price} + ${payments[1].price}) do not add up to 0`
+        isValid: equalsZero,
+        reason: equalsZero ? null : `First two payments (${payments[0].price} + ${payments[1].price}) do not add up to 0`
     };
 }
 
