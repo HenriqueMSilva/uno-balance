@@ -1,8 +1,3 @@
-// Content Script for Amadeus GDS Flight Checker
-// This runs on the page and can be debugged in Sources > Content Scripts
-
-console.log('🔌 [Content Script] Amadeus GDS Checker loaded');
-
 // Listen for messages from the popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     console.log('📨 [Content Script] Received message:', request);
@@ -23,8 +18,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             });
         }
     }
-
-    return true; // Keep the message channel open for async response
 });
 
 // Main function to check for Amadeus GDS flights
@@ -111,4 +104,3 @@ function checkAmadeusFlights() {
         };
     }
 }
-
