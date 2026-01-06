@@ -24,15 +24,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 function checkAmadeusFlights() {
 
     try {
-        console.log('🔍 [Amadeus GDS Checker] Starting scan...');
         const amadeusIds = [];
 
         // Find the flights product container
         const flightsProduct = document.getElementById('flights-product');
-        console.log('📦 [Step 1] Looking for flights-product element:', flightsProduct);
 
         if (!flightsProduct) {
-            console.error('❌ [Error] Could not find flights-product element');
             return {
                 error: 'Could not find flights-product element on this page.',
                 amadeusIds: [],
@@ -45,26 +42,32 @@ function checkAmadeusFlights() {
         console.log(`✈️  [Step 2] Found ${containers.length} flight container(s):`, containers);
 
         // Check each container for Amadeus GDS
-        containers.forEach((container, index) => {
-            const containerId = container.id;
+        containers.forEach((flightContainer, index) => {
+            const containerId = flightContainer.id;
             console.log(`\n🔎 [Flight ${index + 1}/${containers.length}] Checking container: ${containerId}`);
 
             // Look for the div with class "bold" that contains "(Amadeus GDS)"
-            // Following the path: container > div.right > div.margin_top10.margin_right10 > div.iteminfobox.info_side > div:nth-child(2)
-            const rightDiv = container.querySelector('div.right');
-            console.log(`  ↳ div.right found:`, rightDiv ? '✓' : '✗', rightDiv);
-            if (!rightDiv) return;
+            const rightYellowDiv = flightContainer.querySelector(':scope > div.right');
+            console.log(`  ↳ div.right found:`, rightYellowDiv ? '✓' : '✗', rightYellowDiv);
+            if (!rightYellowDiv) {
+                console.log(`  ⚠️  No div.right found in container ${containerId}`);
+                return;
+            }
 
-            const marginDiv = rightDiv.querySelector('div.margin_top10.margin_right10');
-            console.log(`  ↳ div.margin_top10.margin_right10 found:`, marginDiv ? '✓' : '✗', marginDiv);
-            if (!marginDiv) return;
+            // Try to find the margin div - be more flexible with the selector
+            const marginDiv = rightYellowDiv.querySelector('div.margin_top10.margin_right10');
+            console.log(`  ↳ div.margin_top10.margin_right10 found (exact match):`, marginDiv ? '✓' : '✗', marginDiv);
+            if (!marginDiv) {
+                console.log(`  ⚠️  No margin div found in container ${containerId}`);
+                return;
+            }
 
-            const infoBox = marginDiv.querySelector('div.iteminfobox.info_side');
-            console.log(`  ↳ div.iteminfobox.info_side found:`, infoBox ? '✓' : '✗', infoBox);
-            if (!infoBox) return;
+            const flightInfoBox = marginDiv.querySelector('div.iteminfobox.info_side');
+            console.log(`  ↳ div.iteminfobox.info_side found:`, flightInfoBox ? '✓' : '✗', flightInfoBox);
+            if (!flightInfoBox) return;
 
             // Get all direct child divs and check the second one
-            const childDivs = infoBox.querySelectorAll(':scope > div.bold');
+            const childDivs = flightInfoBox.querySelectorAll(':scope > div.bold');
             console.log(`  ↳ Found ${childDivs.length} div.bold element(s) inside info_side`);
 
             // Check all bold divs for Amadeus GDS text
