@@ -40,7 +40,27 @@ async function checkAmadeusFlightsBalance() {
 
         // Wait for all async operations
         await Promise.all(amadeusFlights.map(async (flight) => {
-            if (flight.officeId && formattedDate) {
+            // Check if booking code is N/A
+            if (!flight.officeId || flight.officeId === 'N/A') {
+                flight.canValidate = false;
+                flight.validationError = 'Booking code is N/A - cannot fetch sales report';
+                flight.isBalanced = false;
+                flight.validationResults = [];
+                return;
+            }
+
+            // Check currency consistency
+            const currencyCheck = validateCurrencyConsistency(flight);
+            if (!currencyCheck.isValid) {
+                flight.canValidate = false;
+                flight.validationError = currencyCheck.reason;
+                flight.isBalanced = false;
+                flight.validationResults = [];
+                return;
+            }
+
+            flight.canValidate = true;
+            if (formattedDate) {
                 flight.salesReport = await fetchSalesReportByPNR(flight.officeId, formattedDate, flight.pnr);
                 flight.validationResults = validateBookingBalance(flight);
                 flight.isBalanced = flight.validationResults.every(v => v.isValid);
@@ -439,4 +459,54 @@ function validateBaggageSalesReportEntries(flightData) {
         isValid,
         reason: isValid ? null : `Expected ${baggageCount} baggage entries, found ${baggageEntries.length}`
     };
+}
+
+function validateCurrencyConsistency(flightData) {
+    const { fare, tax, totalMerchant, payments } = flightData;
+
+    const currencies = new Set();
+
+    // Extract currency from fare, tax, and total merchant
+    const fareCurrency = extractCurrency(fare);
+    const taxCurrency = extractCurrency(tax);
+    const totalMerchantCurrency = extractCurrency(totalMerchant);
+
+    if (fareCurrency) currencies.add(fareCurrency);
+    if (taxCurrency) currencies.add(taxCurrency);
+    if (totalMerchantCurrency) currencies.add(totalMerchantCurrency);
+
+    // Extract currency from all payments
+    if (payments && Array.isArray(payments)) {
+        payments.forEach(payment => {
+            const paymentCurrency = extractCurrency(payment.price);
+            if (paymentCurrency) currencies.add(paymentCurrency);
+        });
+    }
+
+    // Check if all currencies are the same
+    if (currencies.size > 1) {
+        return {
+            isValid: false,
+            reason: `Multiple currencies detected: ${Array.from(currencies).join(', ')} - cannot validate balance`
+        };
+    }
+
+    if (currencies.size === 0) {
+        return {
+            isValid: false,
+            reason: 'No currency information found in amounts'
+        };
+    }
+
+    return {
+        isValid: true,
+        reason: null
+    };
+}
+
+function extractCurrency(amountString) {
+    if (!amountString) return null;
+    // Match currency symbols or codes (e.g., €, $, USD, EUR, etc.)
+    const match = amountString.match(/([A-Z]{3}|[$€£¥])/);
+    return match ? match[1] : null;
 }

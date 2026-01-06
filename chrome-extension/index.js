@@ -43,24 +43,42 @@ function displayResults(data) {
         return;
     }
 
-    const balanceStatus = data.allBalanced
-        ? '<div class="success">✅ All Amadeus flights are balanced</div>'
-        : '<div class="error">❌ Some Amadeus flights are unbalanced</div>';
-
-    let html = `${balanceStatus}`;
+    let html = '<div style="margin-bottom: 15px; font-weight: bold;">Flight Balance Results:</div>';
 
     data.amadeusFlights.forEach((flight, index) => {
-        const balanceIndicator = flight.isBalanced ? '✅' : '❌';
-        const borderColor = flight.isBalanced ? '#4CAF50' : '#f44336';
+        const cannotValidate = flight.canValidate === false;
+        let balanceIndicator, borderColor, backgroundColor, statusText;
+
+        if (cannotValidate) {
+            balanceIndicator = '⚠️';
+            borderColor = '#ff9800';
+            backgroundColor = '#fffbf0';
+            statusText = 'Cannot check balance';
+        } else if (flight.isBalanced) {
+            balanceIndicator = '✅';
+            borderColor = '#4CAF50';
+            backgroundColor = '#f0f9f0';
+            statusText = 'Balanced';
+        } else {
+            balanceIndicator = '❌';
+            borderColor = '#f44336';
+            backgroundColor = '#fff5f5';
+            statusText = 'Unbalanced';
+        }
 
         html += `
-            <div style="margin-bottom: 15px; padding: 10px; border: 2px solid ${borderColor}; border-radius: 5px; background-color: ${flight.isBalanced ? '#f0f9f0' : '#fff5f5'};">
-                <div style="font-weight: bold; margin-bottom: 8px;">${balanceIndicator} Flight ${index + 1}</div>
+            <div style="margin-bottom: 15px; padding: 10px; border: 2px solid ${borderColor}; border-radius: 5px; background-color: ${backgroundColor};">
+                <div style="font-weight: bold; margin-bottom: 8px;">${balanceIndicator} Flight ${index + 1} - ${statusText}</div>
                 <div class="flight-id">
                     <strong>PNR:</strong> ${flight.pnr}<br>
                     <strong>Office ID:</strong> ${flight.officeId || 'N/A'}
                 </div>
-                ${!flight.isBalanced && flight.unbalancedReasons.length > 0 ? `
+                ${cannotValidate ? `
+                    <div style="margin-top: 10px; padding: 8px; background-color: #fff3cd; border-left: 3px solid #ff9800; border-radius: 3px;">
+                        <strong style="color: #f57c00;">Reason:</strong>
+                        <div style="margin-top: 5px; font-size: 12px;">${flight.validationError}</div>
+                    </div>
+                ` : !flight.isBalanced && flight.unbalancedReasons && flight.unbalancedReasons.length > 0 ? `
                     <div style="margin-top: 10px; padding: 8px; background-color: #ffe6e6; border-left: 3px solid #f44336; border-radius: 3px;">
                         <strong style="color: #d32f2f;">Unbalanced because:</strong>
                         <ul style="margin: 5px 0 0 0; padding-left: 20px; font-size: 12px;">
@@ -75,7 +93,7 @@ function displayResults(data) {
     html += `
         <div style="margin-top: 10px; font-size: 12px; color: #666;">
             Total flight containers checked: ${data.totalContainers}<br>
-            Amadeus flights returned: ${data.amadeusFlights.length}
+            Amadeus flights found: ${data.amadeusFlights.length}
         </div>
     `;
 
