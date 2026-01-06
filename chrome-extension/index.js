@@ -43,19 +43,31 @@ function displayResults(data) {
         return;
     }
 
-    let html = `
-        <div class="success">
-            Found ${data.amadeusFlights.length} flight(s) with Amadeus GDS
-        </div>
-        <div class="result-header" style="margin-top: 15px;">Flight Details:</div>
-    `;
+    const balanceStatus = data.allBalanced
+        ? '<div class="success">✅ All Amadeus flights are balanced</div>'
+        : '<div class="error">❌ Some Amadeus flights are unbalanced</div>';
 
-    data.amadeusFlights.forEach(flight => {
+    let html = `${balanceStatus}`;
+
+    data.amadeusFlights.forEach((flight, index) => {
+        const balanceIndicator = flight.isBalanced ? '✅' : '❌';
+        const borderColor = flight.isBalanced ? '#4CAF50' : '#f44336';
+
         html += `
-            <div class="flight-id">
-                <strong>PNR:</strong> ${flight.pnr}<br>
-                <strong>Office ID:</strong> ${flight.officeId || 'N/A'}<br>
-                <strong>Total:</strong> ${flight.totalMerchant || 'N/A'}
+            <div style="margin-bottom: 15px; padding: 10px; border: 2px solid ${borderColor}; border-radius: 5px; background-color: ${flight.isBalanced ? '#f0f9f0' : '#fff5f5'};">
+                <div style="font-weight: bold; margin-bottom: 8px;">${balanceIndicator} Flight ${index + 1}</div>
+                <div class="flight-id">
+                    <strong>PNR:</strong> ${flight.pnr}<br>
+                    <strong>Office ID:</strong> ${flight.officeId || 'N/A'}
+                </div>
+                ${!flight.isBalanced && flight.unbalancedReasons.length > 0 ? `
+                    <div style="margin-top: 10px; padding: 8px; background-color: #ffe6e6; border-left: 3px solid #f44336; border-radius: 3px;">
+                        <strong style="color: #d32f2f;">Unbalanced because:</strong>
+                        <ul style="margin: 5px 0 0 0; padding-left: 20px; font-size: 12px;">
+                            ${flight.unbalancedReasons.map(r => `<li>${r}</li>`).join('')}
+                        </ul>
+                    </div>
+                ` : ''}
             </div>
         `;
     });

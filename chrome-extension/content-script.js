@@ -1,21 +1,24 @@
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'checkAmadeusFlights') {
-        try {
-            const result = checkAmadeusFlightsBalance();
-            console.log('✅ [Content Script] Check complete, sending response:', result);
-            sendResponse(result);
-        } catch (error) {
-            console.error('❌ [Content Script] Error:', error);
-            sendResponse({
-                error: `Script error: ${error.message}`,
-                amadeusFlights: [],
-                totalContainers: 0
+        checkAmadeusFlightsBalance()
+            .then(result => {
+                console.log('✅ [Content Script] Check complete, sending response:', result);
+                sendResponse(result);
+            })
+            .catch(error => {
+                console.error('❌ [Content Script] Error:', error);
+                sendResponse({
+                    error: `Script error: ${error.message}`,
+                    amadeusFlights: [],
+                    totalContainers: 0,
+                    allBalanced: false
+                });
             });
-        }
+        return true; // Keep message channel open for async response
     }
 });
 
-function checkAmadeusFlightsBalance() {
+async function checkAmadeusFlightsBalance() {
     try {
         const flightsProduct = document.getElementById('flights-product');
 
@@ -23,7 +26,8 @@ function checkAmadeusFlightsBalance() {
             return {
                 error: 'Could not find flights-product element on this page.',
                 amadeusFlights: [],
-                totalContainers: 0
+                totalContainers: 0,
+                allBalanced: false
             };
         }
 
@@ -33,16 +37,28 @@ function checkAmadeusFlightsBalance() {
 
         // Fetch sales report data for each flight
         const formattedDate = formatBookingDateToISO(bookingDate);
-        amadeusFlights.forEach(async (flight) => {
+
+        // Wait for all async operations
+        await Promise.all(amadeusFlights.map(async (flight) => {
             if (flight.officeId && formattedDate) {
-                flight.salesReport =  await fetchSalesReportByPNR(flight.officeId, formattedDate, flight.pnr);
+                flight.salesReport = await fetchSalesReportByPNR(flight.officeId, formattedDate, flight.pnr);
+                flight.validationResults = validateBookingBalance(flight);
+                flight.isBalanced = flight.validationResults.every(v => v.isValid);
+                flight.unbalancedReasons = flight.validationResults
+                    .filter(v => !v.isValid)
+                    .map(v => v.reason);
             }
-        });
+        }));
+
+        console.log('All flights validated:', amadeusFlights);
+
+        const allBalanced = amadeusFlights.every(flight => flight.isBalanced);
 
         return {
             amadeusFlights: amadeusFlights,
             totalContainers: containers.length,
             bookingDate: bookingDate,
+            allBalanced: allBalanced,
             error: null
         };
 
@@ -52,7 +68,8 @@ function checkAmadeusFlightsBalance() {
         return {
             error: `Script error: ${error.message}`,
             amadeusFlights: [],
-            totalContainers: 0
+            totalContainers: 0,
+            allBalanced: false
         };
     }
 }
@@ -242,4 +259,184 @@ function extractFlightPaymentData(flightContainer, pnr, officeId) {
     }
 
     return flightData;
+}
+
+function validateBookingBalance(flightData) {
+    const validationResults = [];
+
+    // Validate payment details
+    validationResults.push(validateFirstTwoPaymentsBalance(flightData));
+    validationResults.push(validatePassengerPayments(flightData));
+    validationResults.push(validateTotalMerchantBalance(flightData));
+
+    // Validate sales report
+    validationResults.push(validatePassengerSalesReportEntries(flightData));
+    validationResults.push(validateBaggageSalesReportEntries(flightData));
+
+    return validationResults;
+}
+
+function validateFirstTwoPaymentsBalance(flightData) {
+    const { payments } = flightData;
+
+    if (!payments || payments.length < 2) {
+        return {
+            type: 'FIRST_TWO_PAYMENTS',
+            isValid: false,
+            reason: 'Less than 2 payment entries found'
+        };
+    }
+
+    const firstAmount = parseFloat(payments[0].price.replace(/[^\d.-]/g, ''));
+    const secondAmount = parseFloat(payments[1].price.replace(/[^\d.-]/g, ''));
+    const sum = firstAmount + secondAmount;
+
+    const isValid = Math.abs(sum) < 0.01; // Allow small floating point errors
+
+    return {
+        type: 'FIRST_TWO_PAYMENTS',
+        isValid,
+        reason: isValid ? null : `First two payments (${payments[0].price} + ${payments[1].price}) do not add up to 0`
+    };
+}
+
+function validatePassengerPayments(flightData) {
+    const { payments, fare, tax, passengerCount } = flightData;
+
+    if (!payments || payments.length < 2 + passengerCount) {
+        return {
+            type: 'PASSENGER_PAYMENTS',
+            isValid: false,
+            reason: `Expected ${2 + passengerCount} payments, found ${payments?.length || 0}`
+        };
+    }
+
+    const fareAmount = parseFloat(fare.replace(/[^\d.-]/g, ''));
+    const taxAmount = parseFloat(tax.replace(/[^\d.-]/g, ''));
+    const expectedPerPassenger = (fareAmount + taxAmount) / passengerCount;
+
+    const passengerPayments = payments.slice(2, 2 + passengerCount);
+
+    for (let i = 0; i < passengerPayments.length; i++) {
+        const paymentAmount = parseFloat(passengerPayments[i].price.replace(/[^\d.-]/g, ''));
+        if (Math.abs(paymentAmount - expectedPerPassenger) > 0.01) {
+            return {
+                type: 'PASSENGER_PAYMENTS',
+                isValid: false,
+                reason: `Passenger payment ${i + 1} (${passengerPayments[i].price}) does not match expected amount (${expectedPerPassenger.toFixed(2)})`
+            };
+        }
+    }
+
+    return {
+        type: 'PASSENGER_PAYMENTS',
+        isValid: true,
+        reason: null
+    };
+}
+
+function validateTotalMerchantBalance(flightData) {
+    const { payments, totalMerchant } = flightData;
+
+    if (!payments || !totalMerchant) {
+        return {
+            type: 'TOTAL_MERCHANT',
+            isValid: false,
+            reason: 'Missing payment or total merchant information'
+        };
+    }
+
+    const expectedTotal = parseFloat(totalMerchant.replace(/[^\d.-]/g, ''));
+    const paymentsSum = payments.reduce((sum, payment) => {
+        return sum + parseFloat(payment.price.replace(/[^\d.-]/g, ''));
+    }, 0);
+
+    const isValid = Math.abs(paymentsSum - expectedTotal) < 0.01;
+
+    return {
+        type: 'TOTAL_MERCHANT',
+        isValid,
+        reason: isValid ? null : `Sum of payments (${paymentsSum.toFixed(2)}) does not match total merchant (${totalMerchant})`
+    };
+}
+
+function validatePassengerSalesReportEntries(flightData) {
+    const { salesReport, fare, tax, passengerCount } = flightData;
+
+    if (!salesReport || salesReport.length === 0) {
+        return {
+            type: 'PASSENGER_SALES_REPORT',
+            isValid: false,
+            reason: 'No sales report entries found'
+        };
+    }
+
+    const fareAmount = parseFloat(fare.replace(/[^\d.-]/g, ''));
+    const taxAmount = parseFloat(tax.replace(/[^\d.-]/g, ''));
+    const expectedTotalPrice = (fareAmount + taxAmount) / passengerCount;
+    const expectedTax = taxAmount / passengerCount;
+
+    const passengerEntries = salesReport.filter(entry =>
+        entry.action === 'ELECTRONIC_TICKETING_SALE_AUTOMATED'
+    );
+
+    if (passengerEntries.length !== passengerCount) {
+        return {
+            type: 'PASSENGER_SALES_REPORT',
+            isValid: false,
+            reason: `Expected ${passengerCount} passenger entries, found ${passengerEntries.length}`
+        };
+    }
+
+    for (let i = 0; i < passengerEntries.length; i++) {
+        const entry = passengerEntries[i];
+        const totalPrice = entry.monetaryInformation.totalPrice;
+        const entryTax = entry.monetaryInformation.tax;
+
+        if (Math.abs(totalPrice - expectedTotalPrice) > 0.01) {
+            return {
+                type: 'PASSENGER_SALES_REPORT',
+                isValid: false,
+                reason: `Passenger entry ${i + 1} totalPrice (${totalPrice}) does not match expected (${expectedTotalPrice.toFixed(2)})`
+            };
+        }
+
+        if (Math.abs(entryTax - expectedTax) > 0.01) {
+            return {
+                type: 'PASSENGER_SALES_REPORT',
+                isValid: false,
+                reason: `Passenger entry ${i + 1} tax (${entryTax}) does not match expected (${expectedTax.toFixed(2)})`
+            };
+        }
+    }
+
+    return {
+        type: 'PASSENGER_SALES_REPORT',
+        isValid: true,
+        reason: null
+    };
+}
+
+function validateBaggageSalesReportEntries(flightData) {
+    const { salesReport, baggageCount } = flightData;
+
+    if (!salesReport) {
+        return {
+            type: 'BAGGAGE_SALES_REPORT',
+            isValid: false,
+            reason: 'No sales report found'
+        };
+    }
+
+    const baggageEntries = salesReport.filter(entry =>
+        entry.action === 'ELECTRONIC_MISCELLANEOUS_DOCUMENT_ASSOCIATED'
+    );
+
+    const isValid = baggageEntries.length === baggageCount;
+
+    return {
+        type: 'BAGGAGE_SALES_REPORT',
+        isValid,
+        reason: isValid ? null : `Expected ${baggageCount} baggage entries, found ${baggageEntries.length}`
+    };
 }
