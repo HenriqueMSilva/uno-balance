@@ -1,7 +1,7 @@
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'checkAmadeusFlights') {
         try {
-            const result = checkAmadeusFlights();
+            const result = checkAmadeusFlightsBalance();
             console.log('✅ [Content Script] Check complete, sending response:', result);
             sendResponse(result);
         } catch (error) {
@@ -15,11 +15,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 });
 
-function checkAmadeusFlights() {
-
+function checkAmadeusFlightsBalance() {
     try {
-        const amadeusFlights = [];
-
         const flightsProduct = document.getElementById('flights-product');
 
         if (!flightsProduct) {
@@ -31,33 +28,7 @@ function checkAmadeusFlights() {
         }
 
         const containers = flightsProduct.querySelectorAll('.od-flight-details-container');
-        containers.forEach((flightContainer) => {
-            const containerId = flightContainer.id;
-            const rightYellowDiv = flightContainer.querySelector(':scope > div.right');
-            if (!rightYellowDiv) {
-                console.log(` No :scope > div.right found in container ${containerId}`);
-                return;
-            }
-            const marginDiv = rightYellowDiv.querySelector('div.margin_top10.margin_right10');
-            if (!marginDiv) {
-                console.log(`No margin div found in container ${containerId}`);
-                return;
-            }
-            const flightInfoBox = marginDiv.querySelector('div.iteminfobox.info_side');
-            console.log(`div.iteminfobox.info_side found:`, flightInfoBox ? '✓' : '✗', flightInfoBox);
-            if (!flightInfoBox){
-                console.log(`No div.iteminfobox.info_side div found in container ${containerId}`);
-                return;
-            }
-            const childDivs = flightInfoBox.querySelectorAll(':scope > div.bold');
-            if (childDivs.length > 0 && childDivs[0].textContent.trim() === '(Amadeus GDS)') {
-                console.log(`AMADEUS MATCH FOUND - Processing ${containerId}`);
-                const pnr = containerId;
-                const officeId = childDivs.length > 3 ? childDivs[3].textContent.trim() : null;
-                const flightData = extractFlightPaymentDetails(flightContainer, pnr, officeId);
-                amadeusFlights.push(flightData);
-            }
-        });
+        const amadeusFlights = extractFlightDataFromHTML(containers);
 
         return {
             amadeusFlights: amadeusFlights,
@@ -76,14 +47,70 @@ function checkAmadeusFlights() {
     }
 }
 
-function extractFlightPaymentDetails(flightContainer, pnr, officeId) {
+function extractFlightDataFromHTML(containers) {
+    const amadeusFlights = [];
+
+    containers.forEach((flightContainer) => {
+        const containerId = flightContainer.id;
+        const rightYellowDiv = flightContainer.querySelector(':scope > div.right');
+        if (!rightYellowDiv) {
+            console.log(` No :scope > div.right found in container ${containerId}`);
+            return;
+        }
+        const marginDiv = rightYellowDiv.querySelector('div.margin_top10.margin_right10');
+        if (!marginDiv) {
+            console.log(`No margin div found in container ${containerId}`);
+            return;
+        }
+        const flightInfoBox = marginDiv.querySelector('div.iteminfobox.info_side');
+        console.log(`div.iteminfobox.info_side found:`, flightInfoBox ? '✓' : '✗', flightInfoBox);
+        if (!flightInfoBox){
+            console.log(`No div.iteminfobox.info_side div found in container ${containerId}`);
+            return;
+        }
+        const childDivs = flightInfoBox.querySelectorAll(':scope > div.bold');
+        if (childDivs.length > 0 && childDivs[0].textContent.trim() === '(Amadeus GDS)') {
+            console.log(`AMADEUS MATCH FOUND - Processing ${containerId}`);
+            const pnr = containerId;
+            const officeId = childDivs.length > 3 ? childDivs[3].textContent.trim() : null;
+
+            const passengerCount = extractPassengerCount(flightContainer);
+            const baggageCount = extractBaggageCount(flightContainer);
+
+            const flightData = extractFlightPaymentData(flightContainer, pnr, officeId);
+            flightData.passengerCount = passengerCount;
+            flightData.baggageCount = baggageCount;
+            amadeusFlights.push(flightData);
+        }
+    });
+
+    return amadeusFlights;
+}
+
+function extractPassengerCount(flightContainer) {
+    const passengerElement = flightContainer.querySelector('.flight_details .od-flight-segment-line strong:nth-child(7)');
+    return passengerElement ? parseInt(passengerElement.textContent.trim().match(/\d+/)?.[0] || '0') : 0;
+}
+
+function extractBaggageCount(flightContainer) {
+    const baggageElement = flightContainer.querySelector('.segment-details .margin_bot8 > span:last-child');
+    if (baggageElement) {
+        const baggageMatch = baggageElement.textContent.trim().match(/(\d+)\s*Pieces/);
+        return baggageMatch ? parseInt(baggageMatch[1]) : 0;
+    }
+    return 0;
+}
+
+function extractFlightPaymentData(flightContainer, pnr, officeId) {
     const flightData = {
         pnr: pnr,
         officeId: officeId,
         fare: null,
         tax: null,
         totalMerchant: null,
-        payments: []
+        payments: [],
+        passengerCount: 0,
+        baggageCount: 0
     };
 
     // Find the fare table that comes after this container
