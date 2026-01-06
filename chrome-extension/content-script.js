@@ -27,12 +27,22 @@ function checkAmadeusFlightsBalance() {
             };
         }
 
+        const bookingDate = extractBookingDate();
         const containers = flightsProduct.querySelectorAll('.od-flight-details-container');
-        const amadeusFlights = extractFlightDataFromHTML(containers);
+        const amadeusFlights = extractFlightDataFromHTML(containers, bookingDate);
+
+        // Fetch sales report data for each flight
+        const formattedDate = formatBookingDateToISO(bookingDate);
+        amadeusFlights.forEach(async (flight) => {
+            if (flight.officeId && formattedDate) {
+                flight.salesReport =  await fetchSalesReportByPNR(flight.officeId, formattedDate, flight.pnr);
+            }
+        });
 
         return {
             amadeusFlights: amadeusFlights,
             totalContainers: containers.length,
+            bookingDate: bookingDate,
             error: null
         };
 
@@ -47,7 +57,24 @@ function checkAmadeusFlightsBalance() {
     }
 }
 
-function extractFlightDataFromHTML(containers) {
+function extractBookingDate() {
+    const bookingDateElement = document.getElementById('bookingDate');
+    return bookingDateElement ? bookingDateElement.textContent.trim() : null;
+}
+
+function formatBookingDateToISO(bookingDate) {
+    if (!bookingDate) return null;
+
+    // Parse date format: "30/12/2025 14:36" to "2025-12-30"
+    const match = bookingDate.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+    if (match) {
+        const [, day, month, year] = match;
+        return `${year}-${month}-${day}`;
+    }
+    return null;
+}
+
+function extractFlightDataFromHTML(containers, bookingDate) {
     const amadeusFlights = [];
 
     containers.forEach((flightContainer) => {
@@ -80,6 +107,7 @@ function extractFlightDataFromHTML(containers) {
             const flightData = extractFlightPaymentData(flightContainer, pnr, officeId);
             flightData.passengerCount = passengerCount;
             flightData.baggageCount = baggageCount;
+            flightData.bookingDate = bookingDate;
             amadeusFlights.push(flightData);
         }
     });
@@ -99,6 +127,37 @@ function extractBaggageCount(flightContainer) {
         return baggageMatch ? parseInt(baggageMatch[1]) : 0;
     }
     return 0;
+}
+
+
+
+async function fetchAmadeusSalesReport(officeId, reportDate) {
+    const url = `https://lb.amadeus-gateway.gke-apps.edo.qa/amadeus-gateway/api/v2/salesReport/ticket/?officeId=${officeId}&reportDate=${reportDate}`;
+
+    try {
+        const response = await fetch(url);
+        if (!response.ok) {
+            console.error(`HTTP error! status: ${response.status}`);
+            return null;
+        }
+        return await response.json();
+    } catch (error) {
+        console.error(`Error fetching sales report for ${officeId} on ${reportDate}:`, error);
+        return null;
+    }
+}
+
+async function fetchSalesReportByPNR(officeId, reportDate, pnr) {
+    const salesReport = await fetchAmadeusSalesReport(officeId, reportDate);
+    return filterSalesReportByPNR(salesReport, pnr);
+}
+
+function filterSalesReportByPNR(salesReportData, pnr) {
+    if (!salesReportData || !Array.isArray(salesReportData)) {
+        return [];
+    }
+
+    return salesReportData.filter(item => item.pnr === pnr);
 }
 
 function extractFlightPaymentData(flightContainer, pnr, officeId) {
