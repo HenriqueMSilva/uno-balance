@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Amadeus GDS Flight Balance Checker",
-  "version": "0.1",
+  "version": "0.0.2",
   "description": "Checks balance of flights of Amadeus GDS",
   "permissions": [
     "activeTab",

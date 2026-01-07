@@ -133,7 +133,8 @@ function extractFlightDataFromHTML(containers, bookingDate) {
             return;
         }
         const childDivs = flightInfoBox.querySelectorAll(':scope > div.bold');
-        if (childDivs.length > 0 && childDivs[0].textContent.trim() === '(Amadeus GDS)') {
+
+        if (isAmadeusFlightProduct(childDivs)) {
             console.log(`AMADEUS MATCH FOUND - Processing ${containerId}`);
             const pnr = containerId;
             const officeId = childDivs.length > 3 ? childDivs[3].textContent.trim() : null;
@@ -150,6 +151,10 @@ function extractFlightDataFromHTML(containers, bookingDate) {
     });
 
     return amadeusFlights;
+}
+
+function isAmadeusFlightProduct(childDivs) {
+    return childDivs.length > 0 && ['(Amadeus GDS)', '(Amadeus)'].includes(childDivs[0].textContent.trim());
 }
 
 function extractPassengerCount(flightContainer) {
