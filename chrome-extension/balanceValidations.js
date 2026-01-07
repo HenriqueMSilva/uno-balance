@@ -213,7 +213,7 @@ function validatePassengerSalesReportEntries(flightData) {
         return {
             type: 'PASSENGER_SALES_REPORT',
             isValid: false,
-            reason: `Expected ${passengerCount} passenger entries, found ${passengerEntries.length}`
+            reason: `Expected ${passengerCount} ETS tickets in sales report for passengers, found ${passengerEntries.length}`
         };
     }
 
@@ -266,7 +266,7 @@ function validateBaggageSalesReportEntries(flightData) {
     return {
         type: 'BAGGAGE_SALES_REPORT',
         isValid,
-        reason: isValid ? null : `Expected ${baggageCount} baggage entries, found ${baggageEntries.length}`
+        reason: isValid ? null : `Expected ${baggageCount} EMD tickets in sales report for baggage, found ${baggageEntries.length}`
     };
 }
 
