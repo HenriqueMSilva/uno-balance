@@ -2,6 +2,7 @@ function validateBookingBalance(flightData) {
     const validationResults = [];
     validationResults.push(validateAirlineRefundPaymentsBalance(flightData));
     validationResults.push(validatePassengerTicketsPayments(flightData));
+    //new method
     validationResults.push(validateTotalMerchantBalance(flightData));
     validationResults.push(validatePassengerSalesReportEntries(flightData));
     validationResults.push(validateBaggageSalesReportEntries(flightData));
@@ -13,33 +14,98 @@ function validateAirlineRefundPaymentsBalance(flightData) {
 
     if (!payments || payments.length < 2) {
         return {
-            type: 'FIRST_TWO_PAYMENTS',
+            type: 'AIRLINE_REFUND_PAIRS',
             isValid: false,
-            reason: 'Less than 2 payment entries found'
+            reason: 'Less than 2 payment entries found',
+            flightTicketsStartIndex: 0
         };
     }
 
-    const firstCents = moneyToCents(payments[0].price);
-    const secondCents = moneyToCents(payments[1].price);
-    const equalsZero = firstCents + secondCents === 0;
+    const { flightTicketsStartIndex, invalidPairs } = processRefundPairs(payments);
+    flightData.flightTicketsStartIndex = flightTicketsStartIndex;
+
+    if (invalidPairs.length > 0) {
+        return {
+            type: 'AIRLINE_REFUND_PAIRS',
+            isValid: false,
+            reason: `Found ${invalidPairs.length} refund pair(s) that don't sum to zero: ${invalidPairs.map(p => `[${p.current} + ${p.refund} = ${p.sum}]`).join(', ')}`,
+            flightTicketsStartIndex: flightTicketsStartIndex
+        };
+    }
+
+    if (flightTicketsStartIndex === 0) {
+        return {
+            type: 'AIRLINE_REFUND_PAIRS',
+            isValid: false,
+            reason: 'No AIRLINE REFUND pairs found at the beginning of payments',
+            flightTicketsStartIndex: 0
+        };
+    }
 
     return {
-        type: 'FIRST_TWO_PAYMENTS',
-        isValid: equalsZero,
-        reason: equalsZero
-            ? null
-            : `First two payments (${payments[0].price} + ${payments[1].price}) do not add up to 0`
+        type: 'AIRLINE_REFUND_PAIRS',
+        isValid: true,
+        reason: null,
+        flightTicketsStartIndex: flightTicketsStartIndex
+    };
+}
+
+function processRefundPairs(payments) {
+    const invalidPairs = [];
+    let currentIndex = 0;
+
+    while (currentIndex + 1 < payments.length && isAirlineRefundPair(currentIndex, payments)) {
+        const payment = payments[currentIndex];
+        const nextPayment = payments[currentIndex + 1];
+        const validation = validateRefundPairBalance(payment, nextPayment);
+
+        if (!validation.isBalanced) {
+            invalidPairs.push({
+                index: currentIndex,
+                current: validation.paymentAmount,
+                refund: validation.refundAmount,
+                sum: validation.sum
+            });
+        }
+
+        currentIndex += 2;
+    }
+
+    return {
+        flightTicketsStartIndex: currentIndex,
+        invalidPairs: invalidPairs
+    };
+}
+
+function isAirlineRefundPair(currentIndex, payments) {
+    const nextPayment = payments[currentIndex + 1];
+    return nextPayment && nextPayment.transactionType === 'AIRLINE REFUND';
+}
+
+function validateRefundPairBalance(payment, refundPayment) {
+    const paymentCents = moneyToCents(payment.price);
+    const refundCents = moneyToCents(refundPayment.price);
+    const sumCents = paymentCents + refundCents;
+
+    return {
+        isBalanced: sumCents === 0,
+        paymentAmount: payment.price,
+        refundAmount: refundPayment.price,
+        sum: centsToMoney(sumCents)
     };
 }
 
 function validatePassengerTicketsPayments(flightData) {
-    const { payments, fare, tax, passengerCount } = flightData;
+    const { payments, fare, tax, passengerCount, flightTicketsStartIndex = 0 } = flightData;
 
-    if (!payments || payments.length < 2 + passengerCount) {
+    // Use the index directly to know where passenger payments start
+    const recordsToSkip = flightTicketsStartIndex;
+
+    if (!payments || payments.length < recordsToSkip + passengerCount) {
         return {
             type: 'PASSENGER_PAYMENTS',
             isValid: false,
-            reason: `Expected ${2 + passengerCount} payments, found ${payments?.length || 0}`
+            reason: `Expected ${recordsToSkip + passengerCount} payments (${recordsToSkip} refund records + ${passengerCount} passenger payments), found ${payments?.length || 0}`
         };
     }
 
@@ -47,7 +113,7 @@ function validatePassengerTicketsPayments(flightData) {
     const taxCents = moneyToCents(tax);
     const totalCents = fareCents + taxCents;
     const expectedPerPassengerCents = Math.floor(totalCents / passengerCount);
-    const passengerPayments = payments.slice(2, 2 + passengerCount);
+    const passengerPayments = payments.slice(recordsToSkip, recordsToSkip + passengerCount);
 
     for (let i = 0; i < passengerPayments.length; i++) {
         const paymentCents = moneyToCents(passengerPayments[i].price);
