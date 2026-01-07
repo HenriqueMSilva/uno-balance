@@ -2,7 +2,7 @@ function validateBookingBalance(flightData) {
     const validationResults = [];
     validationResults.push(validateAirlineRefundPaymentsBalance(flightData));
     validationResults.push(validatePassengerTicketsPayments(flightData));
-    //new method
+    validationResults.push(validatePaymentRecordsCount(flightData));
     validationResults.push(validateTotalMerchantBalance(flightData));
     validationResults.push(validatePassengerSalesReportEntries(flightData));
     validationResults.push(validateBaggageSalesReportEntries(flightData));
@@ -92,6 +92,32 @@ function validateRefundPairBalance(payment, refundPayment) {
         paymentAmount: payment.price,
         refundAmount: refundPayment.price,
         sum: centsToMoney(sumCents)
+    };
+}
+
+function validatePaymentRecordsCount(flightData) {
+    const { payments, passengerCount, baggageCount, flightTicketsStartIndex = 0 } = flightData;
+
+    if (!payments) {
+        return {
+            type: 'PAYMENT_RECORDS_COUNT',
+            isValid: false,
+            reason: 'No payment records found'
+        };
+    }
+    const ancillaryCount = baggageCount;
+    const refundRecordsCount = flightTicketsStartIndex;
+    const expectedTotalRecords = refundRecordsCount + passengerCount + ancillaryCount;
+    const actualRecordsCount = payments.length;
+
+    const isValid = actualRecordsCount === expectedTotalRecords;
+
+    return {
+        type: 'PAYMENT_RECORDS_COUNT',
+        isValid,
+        reason: isValid
+            ? null
+            : `Expected ${expectedTotalRecords} payment records (${refundRecordsCount} refund + ${passengerCount} passengers + ${baggageCount} bags), found ${actualRecordsCount}`
     };
 }
 
